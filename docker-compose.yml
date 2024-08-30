@@ -1,0 +1,23 @@
+version: '3.9'
+
+services:
+  wallet:
+    build:
+        context: .
+        dockerfile: Dockerfile
+    container_name: wallet
+    environment:
+        - WALLET_APP_LABEL=wallet
+        - WALLET_HOST=0.0.0.0
+        - WALLET_PORT=8080
+        - WALLET_LOG_LEVEL=debug
+        - WALLET_POSTGRES_HOST=postgres
+        - WALLET_POSTGRES_PORT=5432
+        - WALLET_POSTGRES_USER=postgres
+        - WALLET_POSTGRES_PASSWORD=postgres
+        - WALLET_POSTGRES_DATABASE=postgres
+        - WALLET_REDIS_HOST=redis
+        - WALLET_REDIS_PORT=6379
+        - WALLET_REDIS_PASSWORD=redis
+    ports:
+      - "8080:8080"

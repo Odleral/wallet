@@ -1,17 +1,31 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"os/signal"
 	"wallet/internal/bootstrap"
 	"wallet/internal/config"
 )
 
 func main() {
-	cfg := config.New()
+	quitSignal := make(chan os.Signal, 1)
+	signal.Notify(quitSignal, os.Interrupt)
 
-	fmt.Println(cfg)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	cfg := config.New(ctx)
+
+	fmt.Printf("%+v\n", cfg.PostgresURL())
+
+	go func() {
+		<-quitSignal
+
+		cancel()
+	}()
 
 	app := bootstrap.NewApp(cfg)
 
-	app.Run()
+	app.Run(ctx)
 }

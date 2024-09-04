@@ -1,11 +1,11 @@
-package transaction
+package replenishment
 
 import (
 	"context"
 	tt "go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"wallet/internal/domain"
-	"wallet/internal/errs"
+	"wallet/pkg/tracer"
 )
 
 const (
@@ -14,45 +14,46 @@ const (
 
 type UseCase struct {
 	log    *zap.Logger
-	cache  Cache
-	wallet WalletRepo
 	tracer Tracer
-	pub    TranPublisher
+
+	cache Cache
+
+	tran   TranRepo
+	wallet WalletRepo
+
+	pub TranPublisher
 }
 
 type (
 	Cache interface {
-		GetByID(ctx context.Context, id string) (domain.Wallet, error)
 		Exists(ctx context.Context, id string) (bool, error)
-		Update(ctx context.Context, w domain.Wallet) error
 	}
 
 	WalletRepo interface {
 		GetByID(ctx context.Context, id string) (domain.Wallet, error)
-		Update(ctx context.Context, w domain.Wallet) error
 	}
 
 	TranRepo interface {
-		Create(ctx context.Context, t domain.Transaction) error
-		Update(ctx context.Context, t domain.Transaction) error
+		Create(ctx context.Context, t domain.Transaction) (string, error)
 	}
 
 	TranPublisher interface {
-		Publish(ctx context.Context, t domain.Transaction) error
+		Publish(t domain.Transaction) error
 	}
 
 	Tracer interface {
 		StartSpan(ctx context.Context, namespace string) (context.Context, tt.Span)
-		Error(span tt.Span, method string, err error)
 	}
 )
 
-func New(l *zap.Logger, c Cache, w WalletRepo, t Tracer, pub TranPublisher) *UseCase {
+func New(l *zap.Logger, c Cache, w WalletRepo,
+	tran TranRepo, t Tracer, pub TranPublisher) *UseCase {
 	return &UseCase{
 		log:    l,
 		cache:  c,
 		wallet: w,
 		tracer: t,
+		tran:   tran,
 		pub:    pub,
 	}
 }
@@ -61,59 +62,48 @@ func (uc *UseCase) Execute(ctx context.Context, t domain.Transaction) error {
 	ctx, span := uc.tracer.StartSpan(ctx, _namespace)
 	defer span.End()
 
-	l := uc.log.With(zap.String("wallet_id", t.From)).Named(_namespace)
+	l := uc.log.Named(_namespace).With(zap.String("CorrelationID", t.CorrelationID))
 
-	l.Info("transaction started")
+	var wallet domain.Wallet
 
-	wallet, err := uc.cache.GetByID(ctx, t.From)
+	l.Info("transaction start")
+
+	walletExists, err := uc.cache.Exists(ctx, t.WalletID)
 	if err != nil {
-		l.Error("failed to get wallet", zap.Error(err))
-		uc.tracer.Error(span, "GetByID", err)
+		l.Error("uc.cache.Exists", zap.Error(err))
+		tracer.Error(span, "uc.cache.Exists", err)
 
 		return err
 	}
 
-	if wallet.Balance < t.Amount {
-		err = errs.ErrInsufficientBalance
-		l.Error("insufficient balance", zap.Error(err))
-		uc.tracer.Error(span, "insufficient balance", err)
+	if !walletExists {
+		wallet, err = uc.wallet.GetByID(ctx, t.WalletID)
+		if err != nil {
+			l.Error("uc.cache.GetByID", zap.Error(err))
+			tracer.Error(span, "uc.cache.GetByID", err)
 
-		return err
+			return err
+		}
 	}
 
-	incomeWalletExists, err := uc.cache.Exists(ctx, t.To)
+	l.Info("wallet exists", zap.String("WalletID", wallet.ID))
+
+	id, err := uc.tran.Create(ctx, t)
 	if err != nil {
-		l.Error("failed to check wallet", zap.Error(err))
-		uc.tracer.Error(span, "Exists", err)
+		l.Error("uc.tran.Create", zap.Error(err))
+		tracer.Error(span, "uc.tran.Create", err)
 
 		return err
 	}
 
-	if !incomeWalletExists {
-		err = errs.ErrNotFound
-		l.Error("wallet not found", zap.Error(err))
-		uc.tracer.Error(span, "wallet not found", err)
+	t.ID = id
+
+	if err = uc.pub.Publish(t); err != nil {
+		l.Error("uc.pub.Publish", zap.Error(err))
+		tracer.Error(span, "uc.pub.Publish", err)
 
 		return err
 	}
-
-	if err := uc.pub.Publish(ctx, t); err != nil {
-		l.Error("failed to publish transaction", zap.Error(err))
-		uc.tracer.Error(span, "Publish", err)
-
-		return err
-	}
-
-	return nil
-}
-
-func (uc *UseCase) TransactionUpdate(ctx context.Context, t domain.Transaction, s domain.StatusCode) error {
-	ctx, span := uc.tracer.StartSpan(ctx, _namespace)
-	defer span.End()
-
-	l := uc.log.With(zap.String("wallet_id", t.From)).Named(_namespace)
-
-	l.Info("transaction update", zap.String("status", string(s)), zap.String("transaction_id", t.ID))
 
 	return nil
 }

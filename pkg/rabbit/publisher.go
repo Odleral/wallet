@@ -6,19 +6,22 @@ import (
 )
 
 type Pub struct {
-	log      *zap.Logger
-	conn     *amqp091.Connection
-	channel  *amqp091.Channel
-	exchange string
+	log        *zap.Logger
+	conn       *amqp091.Connection
+	channel    *amqp091.Channel
+	exchange   string
+	RoutingKey string
+	QueueName  string
 }
 
-func NewPublisher(log *zap.Logger, conn *amqp091.Connection, exchange string) (*Pub, error) {
-	ch, err := conn.Channel()
+func (c *Connection) NewPublisher(log *zap.Logger,
+	exchange, rk, q string) (*Pub, error) {
+	ch, err := c.conn.Channel()
 	if err != nil {
 		return nil, err
 	}
 
-	if err := ch.ExchangeDeclare(exchange,
+	if err = ch.ExchangeDeclare(exchange,
 		"direct",
 		true,
 		false,
@@ -27,9 +30,18 @@ func NewPublisher(log *zap.Logger, conn *amqp091.Connection, exchange string) (*
 		return nil, err
 	}
 
+	queue, err := ch.QueueDeclare(q, true, false, false, false, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = ch.QueueBind(queue.Name, rk, exchange, false, nil); err != nil {
+		return nil, err
+	}
+
 	return &Pub{
 		log:      log,
-		conn:     conn,
+		conn:     c.conn,
 		channel:  ch,
 		exchange: exchange,
 	}, nil

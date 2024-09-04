@@ -55,6 +55,22 @@ func (t *TransactionRepo) Create(ctx context.Context, transaction domain.Transac
 	return id, nil
 }
 
+func (t *TransactionRepo) Update(ctx context.Context, transaction domain.Transaction) error {
+	tx, err := t.DB.Beginx()
+	if err != nil {
+		return errs.Wrap(err)
+	}
+
+	_, err = tx.ExecContext(ctx, _qTransferUpdateTranStatus, transaction.Status, transaction.ID)
+	if err != nil {
+		err = tx.Rollback() //nolint:errcheck
+
+		return errs.Wrap(err)
+	}
+
+	return nil
+}
+
 func (t *TransactionRepo) Transfer(ctx context.Context, transaction domain.Transaction) error {
 	tx, err := t.DB.Beginx()
 	if err != nil {
@@ -63,13 +79,13 @@ func (t *TransactionRepo) Transfer(ctx context.Context, transaction domain.Trans
 
 	_, err = tx.ExecContext(ctx, _qTransferUpdateBalanceSum, transaction.Amount, transaction.WalletID)
 	if err != nil {
-		tx.Rollback()
+		tx.Rollback() //nolint:errcheck
 		return errs.Wrap(err)
 	}
 
 	_, err = tx.ExecContext(ctx, _qTransferUpdateTranStatus, domain.Success, transaction.ID)
 	if err != nil {
-		tx.Rollback()
+		tx.Rollback() //nolint:errcheck
 		return errs.Wrap(err)
 	}
 

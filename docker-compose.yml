@@ -1,23 +1,62 @@
-version: '3.9'
+version: "3.9"
 
 services:
+  postgres:
+    image: postgres:13
+    container_name: postgres
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=postgres
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:6
+    container_name: redis
+    environment:
+      - REDIS_PASSWORD=redis
+    ports:
+      - "6379:6379"
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    environment:
+      - RABBITMQ_DEFAULT_USER=rabbit
+      - RABBITMQ_DEFAULT_PASS=test
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
   wallet:
     build:
         context: .
         dockerfile: Dockerfile
     container_name: wallet
+    depends_on:
+      - postgres
+      - redis
+      - rabbitmq
     environment:
-        - WALLET_APP_LABEL=wallet
-        - WALLET_HOST=0.0.0.0
-        - WALLET_PORT=8080
-        - WALLET_LOG_LEVEL=debug
-        - WALLET_POSTGRES_HOST=postgres
-        - WALLET_POSTGRES_PORT=5432
-        - WALLET_POSTGRES_USER=postgres
-        - WALLET_POSTGRES_PASSWORD=postgres
-        - WALLET_POSTGRES_DATABASE=postgres
-        - WALLET_REDIS_HOST=redis
-        - WALLET_REDIS_PORT=6379
-        - WALLET_REDIS_PASSWORD=redis
+      - APP_LABEL=appWallet
+      - HOST=0.0.0.0
+      - PORT=:8080
+      - LOG_LEVEL=debug
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_DATABASE=postgres
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=redis
+      - JAEGER_HOST=jaeger
+      - JAEGER_PORT=6831
+      - AMQP_URL=amqp://rabbit:test@rabbitmq:5672
+      - TRANSACTION_SUB_QUEUE_NAME=wallet.transaction.evt.v1
+      - TRANSACTION_PUB_EXCHANGE=wallet.direct.exchange
+      - TRANSACTION_PUB_QUEUE_NAME=wallet.transaction.evt.v1
+      - TRANSACTION_PUB_ROUTING_KEY=wallet.transaction.evt.v1
     ports:
       - "8080:8080"
